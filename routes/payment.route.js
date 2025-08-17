@@ -1,29 +1,62 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const paymentController = require('../controllers/payment.controller');
-const { authenticateToken, isEqubMember, isCollectorOrAdmin, paymentRateLimit } = require('../middleware/auth');
+const paymentController = require("../controllers/payment.controller");
+const {
+  authenticateToken,
+  isEqubMember,
+  isCollectorOrAdmin,
+  isPaymentProcessor,
+  paymentRateLimit,
+} = require("../middleware/auth");
 const {
   validatePaymentHistory,
   validateProcessPayment,
-  validateUnpaidMembers
-} = require('../middleware/validation');
+  validateUnpaidMembers,
+} = require("../middleware/validation");
 
-// Apply authentication to all payment routes
-router.use(authenticateToken);
-
-// Apply rate limiting to payment processing routes
-router.use('/process-payment', paymentRateLimit);
+// Note: do not apply authentication globally so some endpoints can be public.
+// Apply rate limiting to payment processing route specifically.
 
 // Payment history and summary (requires equb membership)
-router.get('/:equbId/payment-history', isEqubMember, validatePaymentHistory, paymentController.getPaymentHistory);
-router.get('/:equbId/unpaid-members', isEqubMember, validateUnpaidMembers, paymentController.getUnpaidMembers);
-router.get('/:equbId/payment-summary', isEqubMember, paymentController.getPaymentSummary);
+router.get(
+  "/:equbId/payment-history",
+  // public endpoint: optional userId query to filter by member
+  validatePaymentHistory,
+  paymentController.getPaymentHistory
+);
+router.get(
+  "/:equbId/unpaid-members",
+  validateUnpaidMembers,
+  paymentController.getUnpaidMembers
+);
+router.get(
+  "/:equbId/payment-summary",
+  isEqubMember,
+  paymentController.getPaymentSummary
+);
 
 // Payment processing (requires collector or admin role)
-router.post('/process-payment', isCollectorOrAdmin, validateProcessPayment, paymentController.processPayment);
+router.post(
+  "/process-payment",
+  authenticateToken,
+  isPaymentProcessor,
+  paymentRateLimit,
+  validateProcessPayment,
+  paymentController.processPayment
+);
 
 // Payment management (requires collector or admin role)
-router.put('/:paymentId/mark-unpaid', isCollectorOrAdmin, paymentController.markPaymentAsUnpaid);
-router.put('/:paymentId/cancel', isCollectorOrAdmin, paymentController.cancelPayment);
+router.put(
+  "/:paymentId/mark-unpaid",
+  authenticateToken,
+  isCollectorOrAdmin,
+  paymentController.markPaymentAsUnpaid
+);
+router.put(
+  "/:paymentId/cancel",
+  authenticateToken,
+  isCollectorOrAdmin,
+  paymentController.cancelPayment
+);
 
-module.exports = router; 
+module.exports = router;

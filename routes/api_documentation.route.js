@@ -26,7 +26,7 @@ router.get("/", (req, res) => {
           "POST /join-equb - Join an equb",
           "POST /my-equbs - Get user's equbs",
           "GET /:equbId - Get equb details",
-          "POST /:equbId/members - Add new member",
+          "POST /:equbId/addMembers - Add new member",
           "DELETE /:equbId/members/:userId - Remove member",
           "PUT /:equbId/members/:userId/role - Update member role",
         ],

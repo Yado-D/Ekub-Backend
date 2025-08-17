@@ -8,30 +8,47 @@ const getPaymentHistory = async (req, res) => {
   try {
     const { equbId } = req.params;
     const { userId, status, page = 1, limit = 20 } = req.query;
-    const currentUserId = req.user._id;
+    const currentUserId = req.user ? req.user._id : null;
 
-    // Check if user is a member of this equb
-    const equb = await Equb.findOne({ equbId, 'members.userId': currentUserId });
-    if (!equb) {
-      return res.status(403).json({
-        status: "error",
-        error: {
-          code: "equb/not-member",
-          message: "You are not a member of this equb"
-        }
-      });
+    // If authenticated, prefer membership-restricted view; if unauthenticated,
+    // allow public access but require userId query when requesting member-specific history.
+    let equb = null;
+    if (currentUserId) {
+      equb = await Equb.findOne({ equbId, 'members.userId': currentUserId });
+      if (!equb) {
+        return res.status(403).json({
+          status: "error",
+          error: {
+            code: "equb/not-member",
+            message: "You are not a member of this equb"
+          }
+        });
+      }
+    } else {
+      // public access: fetch equb (read-only) but don't require membership
+      equb = await Equb.findOne({ equbId });
+      if (!equb) {
+        return res.status(404).json({ status: 'error', error: { code: 'equb/not-found', message: 'Equb not found' } });
+      }
+      // require query userId when requesting specific user's history while unauthenticated
+      if (!userId) {
+        return res.status(400).json({
+          status: 'error',
+          error: { code: 'validation/missing-field', message: 'userId query parameter is required for public payment history' }
+        });
+      }
     }
 
     // Build query
-    const query = { equbId: equb._id };
-    if (userId) query.userId = userId;
+  const query = { equbId: equb._id };
+  if (userId) query.userId = userId;
     if (status && status !== 'all') query.status = status;
 
     // Get total count
     const total = await Payment.countDocuments(query);
     const totalPages = Math.ceil(total / limit);
 
-    // Get payments with pagination
+  // Get payments with pagination
     const payments = await Payment.find(query)
       .populate('userId', 'fullName')
       .populate('equbId', 'name equbId')
@@ -47,14 +64,14 @@ const getPaymentHistory = async (req, res) => {
       status: payment.status,
       amountPaid: payment.amountPaid,
       paymentMethod: payment.paymentMethod,
-      userId: payment.userId._id,
-      userName: payment.userId.fullName,
+  userId: payment.userId._id,
+  userName: payment.userId.fullName,
       formNumber: equb.members.find(m => m.userId.toString() === payment.userId._id.toString())?.formNumber || 0,
       participationType: equb.members.find(m => m.userId.toString() === payment.userId._id.toString())?.participationType || 'full'
     }));
 
     // Calculate summary
-    const allPayments = await Payment.find({ equbId: equb._id });
+  const allPayments = await Payment.find({ equbId: equb._id });
     const summary = {
       totalPaid: allPayments
         .filter(p => p.status === 'paid')
@@ -105,18 +122,18 @@ const processPayment = async (req, res) => {
   const processorRole = req.member?.role || role;
 
   // Check if user has permission to process payments
-  if (!['collector', 'admin', 'judge', 'writer'].includes(processorRole)) {
+    if (!['collector', 'judge', 'writer'].includes(processorRole)) {
       return res.status(403).json({
         status: "error",
         error: {
           code: "payment/insufficient-permissions",
-          message: "Only collectors and admins can process payments"
+          message: "Only collectors, judges, or writers can process payments"
         }
       });
     }
 
     // Find the equb
-    const equb = await Equb.findOne({ equbId });
+  const equb = await Equb.findOne({ equbId });
     if (!equb) {
       return res.status(404).json({
         status: "error",
@@ -127,36 +144,16 @@ const processPayment = async (req, res) => {
       });
     }
 
-    // Normalize target user id: support both custom userId (e.g. UXXXXXXXX) and Mongo _id
-    let targetUserObjectId = userId;
-    try {
-      // If userId looks like the app's custom userId (starts with 'U'), resolve to _id
-      if (typeof userId === 'string' && /^U[A-Z0-9]{9}$/.test(userId)) {
-        const targetUser = await User.findOne({ userId });
-        if (!targetUser) {
-          return res.status(404).json({
-            status: "error",
-            error: {
-              code: "equb/member-not-found",
-              message: "Member not found in this equb"
-            }
-          });
-        }
-        targetUserObjectId = targetUser._id.toString();
-      }
-    } catch (err) {
-      console.error('Error resolving target userId:', err);
-      return res.status(500).json({
-        status: "error",
-        error: {
-          code: "payment/resolve-user-failed",
-          message: "Failed to resolve userId"
-        }
-      });
+    // Resolve target user either by app userId or Mongo id
+    let targetUser = null;
+    if (/^U[A-Z0-9]{9}$/.test(userId)) targetUser = await User.findOne({ userId });
+    else targetUser = await User.findById(userId);
+
+    if (!targetUser) {
+      return res.status(404).json({ status: 'error', error: { code: 'equb/member-not-found', message: 'Member not found in this equb' } });
     }
 
-    // Check if user is a member of this equb
-    const member = equb.members.find(m => m.userId.toString() === targetUserObjectId.toString());
+    const member = equb.members.find(m => m.userId.toString() === targetUser._id.toString());
     if (!member) {
       return res.status(404).json({
         status: "error",
@@ -170,7 +167,7 @@ const processPayment = async (req, res) => {
     // Check if payment already exists for this round
     let payment = await Payment.findOne({
       equbId: equb._id,
-      userId: targetUserObjectId,
+      userId: targetUser._id,
       roundNumber
     });
 
@@ -189,7 +186,7 @@ const processPayment = async (req, res) => {
       payment = new Payment({
         paymentId: Payment.generatePaymentId(),
         equbId: equb._id,
-        userId: targetUserObjectId,
+        userId: targetUser._id,
         roundNumber,
         amount: equb.saving,
         status: 'paid',
@@ -206,7 +203,7 @@ const processPayment = async (req, res) => {
     await payment.save();
 
     // Update equb member payment history
-  await equb.processPayment(targetUserObjectId, roundNumber, {
+  await equb.processPayment(targetUser._id, roundNumber, {
       status: 'paid',
       amount: amount,
       paymentMethod,
@@ -214,7 +211,7 @@ const processPayment = async (req, res) => {
     });
 
     // Create notification for member
-  await Notification.createEqubNotification(targetUserObjectId, equb._id, {
+  await Notification.createEqubNotification(targetUser._id, equb._id, {
       title: 'Payment Processed',
       message: `Your payment of ${amount} for round ${roundNumber} has been processed successfully`,
       priority: 'medium',
@@ -248,18 +245,26 @@ const getUnpaidMembers = async (req, res) => {
   try {
     const { equbId } = req.params;
     const { roundNumber, page = 1, limit = 20 } = req.query;
-    const currentUserId = req.user._id;
+    const currentUserId = req.user ? req.user._id : null;
 
-    // Check if user is a member of this equb
-    const equb = await Equb.findOne({ equbId, 'members.userId': currentUserId });
-    if (!equb) {
-      return res.status(403).json({
-        status: "error",
-        error: {
-          code: "equb/not-member",
-          message: "You are not a member of this equb"
-        }
-      });
+    // If authenticated, require membership; otherwise allow public read-only access
+    let equb = null;
+    if (currentUserId) {
+      equb = await Equb.findOne({ equbId, 'members.userId': currentUserId });
+      if (!equb) {
+        return res.status(403).json({
+          status: "error",
+          error: {
+            code: "equb/not-member",
+            message: "You are not a member of this equb"
+          }
+        });
+      }
+    } else {
+      equb = await Equb.findOne({ equbId });
+      if (!equb) {
+        return res.status(404).json({ status: 'error', error: { code: 'equb/not-found', message: 'Equb not found' } });
+      }
     }
 
     // Determine which round to check
@@ -268,7 +273,7 @@ const getUnpaidMembers = async (req, res) => {
     // Get unpaid members for the target round
     const unpaidMembers = [];
     
-    for (const member of equb.members) {
+  for (const member of equb.members) {
       if (!member.isActive) continue;
 
       const roundPayment = member.paymentHistory.find(p => p.roundNumber === targetRound);
@@ -292,7 +297,8 @@ const getUnpaidMembers = async (req, res) => {
 
         unpaidMembers.push({
           userId: member.userId,
-          name: member.name,
+          fullName: member.name,
+          phone: member.phone || null,
           participationType: member.participationType,
           formNumber: member.formNumber,
           unpaidRounds,

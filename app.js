@@ -11,6 +11,7 @@ try {
   require("./startup/logger.startup.js")();
   // API routes
   require("./startup/routes.startup")(app);
+  console.log("Startup completed successfully");
 } catch (err) {
   console.error("Error during startup:", err);
 }

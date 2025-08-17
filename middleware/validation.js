@@ -124,8 +124,9 @@ const equbSchemas = {
       .message('Full name must contain only letters and spaces')
       .required(),
     formNumber: Joi.number().integer().min(1).required(),
-    participationType: Joi.string().valid('full', 'half').required(),
+  participationType: Joi.string().valid('full', 'half', 'quarter').required(),
     secretNumber: Joi.string().length(6).optional(),
+  secretKey: Joi.string().length(6).optional(),
     phone: commonSchemas.phoneNumber.required(),
     paidRounds: Joi.number().integer().min(0).default(0)
   }),
@@ -188,8 +189,15 @@ const paymentSchemas = {
   
   processPayment: Joi.object({
     equbId: commonSchemas.equbId.required(),
-    role: Joi.string().valid('collector', 'admin').required(),
-    userId: commonSchemas.userId.required(),
+    // allow processor roles
+    role: Joi.string().valid('collector', 'admin', 'judge', 'writer').required(),
+    // accept either app userId (U...) or a Mongo ObjectId
+    userId: Joi.alternatives()
+      .try(
+        commonSchemas.userId,
+        Joi.string().pattern(/^[a-fA-F0-9]{24}$/).message('userId must be either app userId (U...) or a Mongo ObjectId')
+      )
+      .required(),
     roundNumber: Joi.number().integer().min(1).required(),
     paymentMethod: Joi.string().valid('cash', 'bank', 'mobile_money').required(),
     amount: Joi.number().positive().required(),

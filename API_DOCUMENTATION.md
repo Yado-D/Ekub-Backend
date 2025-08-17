@@ -635,6 +635,7 @@ PUT /api/mobile/equbs/:equbId/members/:userId/role
 ```
 
 **Headers:**
+
 ```
 Authorization: Bearer <access_token>
 ```
@@ -642,6 +643,52 @@ Authorization: Bearer <access_token>
 **Request Body:**
 ```json
 {
+#### 8. List All Members (Public)
+```http
+GET /api/mobile/equbs/:equbId/members
+```
+
+No authentication required. Returns a list of member names and minimal public info.
+
+Success Response (200):
+```json
+{
+  "status": "success",
+  "data": [
+    { "name": "John Doe" },
+    { "name": "Jane Smith" }
+  ]
+}
+```
+
+#### 9. Get Member Payment History (Public)
+```http
+GET /api/mobile/equbs/:equbId/members/:userId/payments
+```
+
+No authentication required. `userId` can be an app userId (e.g., `UXXXXXXXXX`) or a MongoDB `_id`.
+
+Success Response (200):
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "paymentMethod": "cash",
+      "amount": 5000,
+      "date": "2024-01-15T10:30:00.000Z",
+      "paidBy": "collector"
+    },
+    {
+      "paymentMethod": "mobile_money",
+      "amount": 5000,
+      "date": "2024-02-15T10:30:00.000Z",
+      "paidBy": "writer"
+    }
+  ]
+}
+```
+
   "role": "collector"
 }
 ```
@@ -717,14 +764,17 @@ Authorization: Bearer <access_token>
 
 **Request Body:**
 ```json
+
 {
-  "equbId": "EQB123456789",
-  "userId": "USR123456789",
-  "round": 1,
-  "amount": 5000,
-  "paymentMethod": "cash",
-  "notes": "Payment received on time"
+  "equbId": "EQB123456789",  //equb id to payed for
+  "userId": "USR123456789", // paid user id
+  "currentUserId": "", // current user id to check user role
+  "round": 1,   // for which round to pay
+  "amount": 5000,  //amount to pay for round
+  "paymentMethod": "cash",  //methode
+  "notes": "Payment received on time"  //note
 }
+
 ```
 
 **Success Response (201):**
@@ -736,7 +786,7 @@ Authorization: Bearer <access_token>
     "payment": {
       "paymentId": "PAY123456789",
       "equbId": "EQB123456789",
-      "userId": "USR123456789",
+      "userId": "USR123456789", //paid user id
       "userName": "John Doe",
       "round": 1,
       "amount": 5000,

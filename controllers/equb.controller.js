@@ -411,6 +411,91 @@ const getEqubDetails = async (req, res) => {
   }
 };
 
+// Get all members names for an equb (public)
+const getEqubMembers = async (req, res) => {
+  try {
+    const { equbId } = req.params;
+    const equb = await Equb.findOne({ equbId }).populate('members.userId', 'fullName');
+    if (!equb) return res.status(404).json({ status: 'error', error: { code: 'equb/not-found', message: 'Equb not found' } });
+
+    const members = equb.members.map(m => ({ name: m.name || (m.userId && m.userId.fullName) || null }));
+    res.status(200).json({ status: 'success', data: members });
+  } catch (err) {
+    console.error('Get equb members error:', err);
+    res.status(500).json({ status: 'error', error: { code: 'equb/get-members-failed', message: 'Failed to get members' } });
+  }
+};
+
+// Get payment history for a specific member (public)
+const getMemberPayments = async (req, res) => {
+  try {
+    const { equbId, userId } = req.params;
+    // resolve userId if it's app id
+    let targetUser = null;
+    if (/^U[A-Z0-9]{9}$/.test(userId)) targetUser = await User.findOne({ userId: userId });
+    else targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ status: 'error', error: { code: 'user/not-found', message: 'User not found' } });
+
+    const equb = await Equb.findOne({ equbId });
+    if (!equb) return res.status(404).json({ status: 'error', error: { code: 'equb/not-found', message: 'Equb not found' } });
+
+    // Fetch payments
+    const payments = await Payment.find({ equbId: equb._id, userId: targetUser._id }).populate('processedBy', 'userId fullName');
+
+    const history = payments.map(p => {
+      // determine processor id (handle populated doc or plain ObjectId)
+      let processorId = null;
+      if (p.processedBy) {
+        processorId = p.processedBy._id ? p.processedBy._id.toString() : p.processedBy.toString();
+      }
+
+      // find the processor's role within this equb
+      let paidByRole = null;
+      if (processorId) {
+        const processorMember = equb.members.find(m => m.userId.toString() === processorId);
+        paidByRole = processorMember ? processorMember.role : null;
+      }
+
+      return {
+        paymentMethod: p.paymentMethod,
+        amount: p.amountPaid || p.amount,
+        date: p.paidDate,
+        paidBy: paidByRole
+      };
+    });
+    res.status(200).json({ status: 'success', data: history });
+  } catch (err) {
+    console.error('Get member payments error:', err);
+    res.status(500).json({ status: 'error', error: { code: 'payment/get-member-failed', message: 'Failed to get payments' } });
+  }
+};
+
+// Announce winner for current round (collectors/judges/writers only)
+const announceWinner = async (req, res) => {
+  try {
+    const { equbId } = req.params;
+    const { formNumber } = req.body;
+    // req.member is set by middleware which ensures role
+    if (!formNumber) return res.status(400).json({ status: 'error', error: { code: 'validation/missing-field', message: 'formNumber is required' } });
+
+    const equb = await Equb.findOne({ equbId });
+    if (!equb) return res.status(404).json({ status: 'error', error: { code: 'equb/not-found', message: 'Equb not found' } });
+
+    // find member by formNumber
+    const member = equb.members.find(m => m.formNumber === formNumber);
+    if (!member) return res.status(404).json({ status: 'error', error: { code: 'equb/member-not-found', message: 'Member not found' } });
+
+    // mark winner in equb (simple field)
+    equb.winner = { formNumber, userId: member.userId, round: equb.currentRound, announcedBy: req.user._id, announcedAt: new Date() };
+    await equb.save();
+
+    res.status(200).json({ status: 'success', message: 'Winner announced', data: equb.winner });
+  } catch (err) {
+    console.error('Announce winner error:', err);
+    res.status(500).json({ status: 'error', error: { code: 'equb/announce-failed', message: 'Failed to announce winner' } });
+  }
+};
+
 // Add New Member
 const addMember = async (req, res) => {
   try {
@@ -669,4 +754,7 @@ module.exports = {
   addMember,
   removeMember,
   updateMemberRole,
+  getEqubMembers,
+  getMemberPayments,
+  announceWinner
 };
